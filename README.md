@@ -1,5 +1,19 @@
 # Notification PoC using pgoutput in PostgreSQL
 
+## Specification
+
+- CDC (Change Data Capture) 기반 notification PoC
+- PostgreSQL의 논리 복제(logical replication) 기능 활용
+- `pgoutput` 출력 플러그인 사용
+- 데이터 변경 이벤트를 실시간으로 캡처하여 NotificationService로 전송
+  - **PostgreSQL pgoutput → pg-logical-replication → NotificationService**
+- [pg-logical-replication](https://github.com/kibae/pg-logical-replication) 라이브러리 사용
+  - Node.js 환경에서 PostgreSQL 논리 복제 스트림 처리
+- PoC 목표
+  - PostgreSQL 데이터 변경 이벤트를 실시간으로 감지
+  - 감지된 이벤트를 NotificationService로 전송하여 알림 처리
+  - PoC의 NotificationService는 message를 출력하고, 지정된 log table에 기록
+
 ## **pgoutput** testing for PostgreSQL
 
 This repository contains tools and scripts for testing the `pgoutput` logical decoding output plugin in PostgreSQL.
