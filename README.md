@@ -14,6 +14,170 @@
   - 감지된 이벤트를 NotificationService로 전송하여 알림 처리
   - PoC의 NotificationService는 message를 출력하고, 지정된 log table에 기록
 
+## Quick Start
+
+### 1. Start PostgreSQL
+
+```bash
+docker-compose up -d
+```
+
+Wait for initialization:
+```bash
+docker-compose logs -f postgres
+# Wait until you see "database system is ready to accept connections"
+# Press Ctrl+C to exit logs
+```
+
+### 2. Create .env file
+
+```bash
+cp .env.example .env
+```
+
+You can customize the `DATABASE_URL` in `.env` if needed:
+```bash
+DATABASE_URL=postgresql://test:testpw@localhost:5432/pubdb
+```
+
+### 3. Install Dependencies
+
+```bash
+npm install
+```
+
+### 4. Build TypeScript
+
+```bash
+npm run build
+```
+
+### 5. Start Notification Service
+
+```bash
+npm run dev
+# Or: npm start (for compiled version)
+```
+
+Expected output:
+```
+🚀 Starting Notification Service...
+✅ Connected to PostgreSQL for logging
+✅ Subscribed to replication slot: demo_slot
+👂 Listening for changes on demo table...
+```
+
+### 6. Generate Test Data (in another terminal)
+
+```bash
+npm run generate
+```
+
+Expected output:
+```
+✅ Connected to PostgreSQL
+🔄 Generating random data every 2000ms...
+
+✅ INSERT row id=1
+✅ INSERT row id=2
+✅ UPDATE row id=1
+✅ DELETE row id=2
+...
+```
+
+### 7. Watch Notifications
+
+In the Notification Service terminal, you should see:
+```
+[2025-11-02T10:30:00.123Z] [INSERT] demo id=1
+  New data: {
+    "id": 1,
+    "name": "Alice Smith",
+    "small_num": 42,
+    "is_active": true,
+    ...
+  }
+
+[2025-11-02T10:30:02.456Z] [UPDATE] demo id=1
+  Old data: {...}
+  New data: {...}
+
+[2025-11-02T10:30:04.789Z] [DELETE] demo id=1
+  Deleted data: {...}
+```
+
+### 8. Check Notification Log
+
+```bash
+docker exec pgoutput-poc psql -U test -d pubdb -c \
+  "SELECT operation, table_name, row_id, timestamp FROM notification_log ORDER BY timestamp DESC LIMIT 10;"
+```
+
+## Project Structure
+
+```
+.
+├── docker-compose.yml          # PostgreSQL setup
+├── init-db/
+│   ├── 01-setup.sql           # Demo table schema
+│   ├── 02-publication.sql     # Publication & replication slot
+│   └── 03-notification-log.sql # Notification log table
+├── src/
+│   ├── types.ts               # TypeScript type definitions
+│   ├── notification-service.ts # Main CDC→Notification service
+│   └── data-generator.ts       # Random data generator
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+## Demo Table Schema
+
+The `demo` table includes various PostgreSQL data types:
+
+- **Numeric**: SMALLINT, BIGINT, DECIMAL, REAL
+- **String**: TEXT, VARCHAR, CHAR
+- **Date/Time**: TIMESTAMP, DATE, TIME
+- **Boolean**: BOOLEAN
+- **JSON**: JSONB
+- **Array**: TEXT[]
+- **UUID**: UUID
+- **Binary**: BYTEA
+
+See `init-db/01-setup.sql` for full schema.
+
+## How It Works
+
+```
+Data Generator → PostgreSQL demo table
+                     ↓ WAL (Write-Ahead Log)
+                pgoutput plugin
+                     ↓ Replication Stream
+             NotificationService
+                  ↓         ↓
+       notification_log   Console Output
+```
+
+1. **Data Generator** inserts/updates/deletes random data
+2. **PostgreSQL** writes changes to WAL
+3. **pgoutput** plugin decodes WAL into logical changes
+4. **pg-logical-replication** receives replication stream
+5. **NotificationService** processes events and:
+   - Prints to console
+   - Logs to `notification_log` table
+
+## Cleanup
+
+```bash
+# Stop all processes (Ctrl+C in each terminal)
+
+# Stop and remove containers
+docker-compose down -v
+
+# Remove node_modules (optional)
+rm -rf node_modules dist
+```
+
 ## **pgoutput** testing for PostgreSQL
 
 This repository contains tools and scripts for testing the `pgoutput` logical decoding output plugin in PostgreSQL.

@@ -1,0 +1,32 @@
+{
+  "name": "pgoutput-notification-poc",
+  "version": "1.0.0",
+  "description": "CDC-based notification PoC using PostgreSQL pgoutput",
+  "main": "dist/notification-service.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node --env-file=.env dist/notification-service.js",
+    "dev": "node --env-file=.env -r ts-node/register src/notification-service.ts",
+    "generate": "node --env-file=.env -r ts-node/register src/data-generator.ts",
+    "watch": "tsc --watch"
+  },
+  "keywords": [
+    "postgresql",
+    "pgoutput",
+    "cdc",
+    "logical-replication",
+    "notification"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.16.3",
+    "pg-logical-replication": "^2.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/pg": "^8.10.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
