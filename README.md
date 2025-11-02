@@ -1,18 +1,20 @@
-# **pgoutput** testing for PostgreSQL
+# Notification PoC using pgoutput in PostgreSQL
+
+## **pgoutput** testing for PostgreSQL
 
 This repository contains tools and scripts for testing the `pgoutput` logical decoding output plugin in PostgreSQL.
 
 > **Note:** When creating a subscription in the same PostgreSQL cluster (pubdb and subdb in the same instance), `CREATE SUBSCRIPTION` with `create_slot=true` will hang. This guide uses separate Docker containers to avoid this issue.
 
-## Setup: Two PostgreSQL Containers
+### Setup: Two PostgreSQL Containers
 
-### Create Docker Network
+#### Create Docker Network
 
 ```bash
 docker network create pgnet
 ```
 
-### Start Publisher Container
+#### Start Publisher Container
 
 ```bash
 docker run -d \
@@ -25,7 +27,7 @@ docker run -d \
   postgres:16
 ```
 
-### Start Subscriber Container
+#### Start Subscriber Container
 
 ```bash
 docker run -d \
@@ -38,9 +40,9 @@ docker run -d \
   postgres:16
 ```
 
-## Setup Publisher (pg-pub)
+### Setup Publisher (pg-pub)
 
-### Configure Logical Replication
+#### Configure Logical Replication
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb -c "ALTER SYSTEM SET wal_level = logical;"
@@ -50,11 +52,12 @@ docker restart pg-pub
 ```
 
 Wait for restart:
+
 ```bash
 sleep 5
 ```
 
-### Verify Settings
+#### Verify Settings
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb -c "SHOW wal_level;"
@@ -62,7 +65,7 @@ docker exec pg-pub psql -U test -d pubdb -c "SHOW wal_level;"
 
 Expected output: `logical`
 
-### Create Table and Publication
+#### Create Table and Publication
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb << 'EOF'
@@ -84,9 +87,9 @@ SELECT * FROM pg_publication_tables WHERE pubname='pub_demo';
 EOF
 ```
 
-## Setup Subscriber (pg-sub)
+### Setup Subscriber (pg-sub)
 
-### Create Table and Subscription
+#### Create Table and Subscription
 
 ```bash
 docker exec pg-sub psql -U test -d subdb << 'EOF'
@@ -110,9 +113,9 @@ EOF
 
 Expected output: 3 rows (alice, bob, charlie)
 
-## Verify Replication Status
+### Verify Replication Status
 
-### Check Replication Slots (Publisher)
+#### Check Replication Slots (Publisher)
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb -c "
@@ -126,7 +129,7 @@ FROM pg_replication_slots;
 "
 ```
 
-### Check Replication Statistics (Publisher)
+#### Check Replication Statistics (Publisher)
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb -c "
@@ -142,7 +145,7 @@ FROM pg_stat_replication;
 "
 ```
 
-### Check Subscription Status (Subscriber)
+#### Check Subscription Status (Subscriber)
 
 ```bash
 docker exec pg-sub psql -U test -d subdb -c "
@@ -154,7 +157,7 @@ FROM pg_subscription;
 "
 ```
 
-### Check Subscription Statistics (Subscriber)
+#### Check Subscription Statistics (Subscriber)
 
 ```bash
 docker exec pg-sub psql -U test -d subdb -c "
@@ -168,9 +171,9 @@ FROM pg_stat_subscription;
 "
 ```
 
-## Test Data Synchronization
+### Test Data Synchronization
 
-### Test INSERT
+#### Test INSERT
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb -c \
@@ -184,7 +187,7 @@ docker exec pg-sub psql -U test -d subdb -c \
 
 Expected: 5 rows including david and eve
 
-### Test UPDATE
+#### Test UPDATE
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb -c \
@@ -198,7 +201,7 @@ docker exec pg-sub psql -U test -d subdb -c \
 
 Expected: name changed to 'ALICE_UPDATED'
 
-### Test DELETE
+#### Test DELETE
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb -c \
@@ -212,7 +215,7 @@ docker exec pg-sub psql -U test -d subdb -c \
 
 Expected: Row with id=5 removed
 
-### Check Replication Lag
+#### Check Replication Lag
 
 ```bash
 docker exec pg-sub psql -U test -d subdb -c \
@@ -223,9 +226,9 @@ docker exec pg-sub psql -U test -d subdb -c \
    WHERE subname = 'sub_demo';"
 ```
 
-## Test pgoutput Plugin Directly
+### Test pgoutput Plugin Directly
 
-### Using pg_recvlogical (Human-Readable: test_decoding)
+#### Using pg_recvlogical (Human-Readable: test_decoding)
 
 ```bash
 # 디버깅용 슬롯 생성 (test_decoding 플러그인)
@@ -284,6 +287,7 @@ docker exec pg-pub psql -U test -d pubdb -c \
 ```
 
 **Expected output (binary protocol):**
+
 ```
 B^@^@^@...              (Begin transaction)
 R^@^@@^Npublic^@demo... (Relation metadata)
@@ -292,7 +296,7 @@ U^@^@@^NN...            (Update)
 C^@^@^@...              (Commit)
 ```
 
-### Understanding pgoutput Messages
+#### Understanding pgoutput Messages
 
 | Message | Description |
 |---------|-------------|
@@ -304,9 +308,9 @@ C^@^@^@...              (Commit)
 | `C` | Commit - 트랜잭션 커밋 |
 | `T` | Truncate - 테이블 비우기 |
 
-## Cleanup
+### Cleanup
 
-### Stop and Remove Containers
+#### Stop and Remove Containers
 
 ```bash
 docker stop pg-pub pg-sub
@@ -314,7 +318,7 @@ docker rm pg-pub pg-sub
 docker network rm pgnet
 ```
 
-### Clean Specific Replication Slot
+#### Clean Specific Replication Slot
 
 ```bash
 # On publisher
@@ -323,9 +327,9 @@ SELECT pg_drop_replication_slot('slot_name');
 "
 ```
 
-## Troubleshooting
+### Troubleshooting
 
-### Check if subscription is created
+#### Check if subscription is created
 
 ```bash
 docker exec pg-sub psql -U test -d subdb -c "
@@ -335,7 +339,7 @@ SELECT COUNT(*) FROM pg_subscription WHERE subname = 'sub_demo';
 
 If returns `0`, subscription was not created. Run the subscription creation command again.
 
-### Replication slot issues
+#### Replication slot issues
 
 ```bash
 # Check inactive slots on publisher
@@ -351,7 +355,7 @@ SELECT pg_drop_replication_slot('slot_name');
 "
 ```
 
-### Check replication lag
+#### Check replication lag
 
 ```bash
 docker exec pg-sub psql -U test -d subdb -c "
@@ -364,7 +368,7 @@ FROM pg_stat_subscription;
 "
 ```
 
-### Active slot error
+#### Active slot error
 
 If you see `ERROR: replication slot "xxx" is active for PID nnn`:
 
@@ -382,7 +386,7 @@ SELECT pg_drop_replication_slot('xxx');
 "
 ```
 
-### Same-Cluster Subscription Issue
+#### Same-Cluster Subscription Issue
 
 If creating subscription in the same PostgreSQL cluster (pubdb and subdb in same instance):
 
@@ -405,7 +409,7 @@ CREATE SUBSCRIPTION sub_demo
 "
 ```
 
-## PostgreSQL Logical Replication Overview
+### PostgreSQL Logical Replication Overview
 
 PostgreSQL의 **논리 복제(subscription)**는 “항상 연결되어 있어야만 작동하지만, 끊어져도 안전하게 재시도·복구되는 구조”로 설계
 
@@ -425,9 +429,9 @@ PostgreSQL의 **논리 복제(subscription)**는 “항상 연결되어 있어�
 - 접속하지 않을 경우 replication slot에 쌓여있는 변경분이 `max_slot_wal_keep_size`(기본값 없음) 한도까지 쌓임.
 - Subscriber가 장시간 멈추면 WAL이 쌓이므로, 디스크 용량 관리에 주의
 
-## Remove Replication Setup
+### Remove Replication Setup
 
-### Drop Subscription (on Subscriber)
+#### Drop Subscription (on Subscriber)
 
 ```bash
 # Drop subscription and slot on publisher
@@ -452,7 +456,7 @@ SELECT pg_drop_replication_slot('sub_demo');
 "
 ```
 
-### Drop Publication (on Publisher)
+#### Drop Publication (on Publisher)
 
 ```bash
 docker exec pg-pub psql -U test -d pubdb -c "
