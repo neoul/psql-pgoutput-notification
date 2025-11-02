@@ -5,6 +5,7 @@
 CDC 기반 notification PoC 구현
 
 ### 구현된 기능
+
 - ✅ PostgreSQL pgoutput 플러그인 기반 CDC
 - ✅ pg-logical-replication (v2.2.1) 라이브러리로 실시간 이벤트 캡처
 - ✅ NotificationService: 콘솔 출력 + notification_log 테이블 기록
@@ -35,6 +36,7 @@ CDC 기반 notification PoC 구현
 ## Docker Compose 구성
 
 **컨테이너:**
+
 - `postgres` - PostgreSQL 16 (pgoutput 활성화)
   - Container name: `pgoutput-poc`
   - Port: 5432
@@ -42,6 +44,7 @@ CDC 기반 notification PoC 구현
   - WAL 설정: wal_level=logical
 
 **특징:**
+
 - 단일 PostgreSQL 인스턴스 사용 (PoC 간소화)
 - pg-logical-replication은 외부 Node.js 프로세스로 실행
 - init-db 볼륨 마운트로 초기화 SQL 자동 실행
@@ -49,6 +52,7 @@ CDC 기반 notification PoC 구현
 ## Demo Table 스키마
 
 다양한 PostgreSQL 타입을 포함한 테이블 (17개 필드):
+
 - **Numeric**: SMALLINT, BIGINT, DECIMAL, REAL
 - **String**: TEXT, VARCHAR, CHAR
 - **Date/Time**: TIMESTAMP WITH TIME ZONE, DATE, TIME
@@ -63,12 +67,14 @@ CDC 기반 notification PoC 구현
 ## NotificationService
 
 **기능:**
+
 - pgoutput 이벤트 파싱 (INSERT/UPDATE/DELETE/TRUNCATE)
 - 타임스탬프와 함께 콘솔 출력
 - notification_log 테이블에 자동 기록
 - Graceful shutdown 지원 (SIGINT/SIGTERM)
 
 **구현:**
+
 - LogicalReplicationService + PgoutputPlugin (proto_version: 1)
 - Publication: demo_pub
 - Replication Slot: demo_slot
@@ -77,6 +83,7 @@ CDC 기반 notification PoC 구현
 ## DataGenerator
 
 **동작:**
+
 - 2초 간격으로 랜덤 작업 실행
 - 가중치: INSERT 50%, UPDATE 30%, DELETE 20%
 - 모든 PostgreSQL 타입에 대한 랜덤 데이터 생성
@@ -97,23 +104,27 @@ DataGenerator → PostgreSQL demo table
 ## 구현 내역
 
 ### ✅ 1. Docker Compose 작성
+
 - PostgreSQL 16 컨테이너
 - wal_level=logical, max_wal_senders=10, max_replication_slots=10
 - init-db 볼륨 마운트로 자동 초기화
 - Health check 설정
 
 ### ✅ 2. SQL 초기화 스크립트
+
 - `01-setup.sql`: demo 테이블 + 인덱스 (created_at, name, metadata GIN)
 - `02-publication.sql`: publication (demo_pub) + replication slot (demo_slot)
 - `03-notification-log.sql`: notification_log 테이블 + 인덱스 + 권한
 
 ### ✅ 3. TypeScript 프로젝트 설정
+
 - **Dependencies**: pg@8.16.3, pg-logical-replication@2.2.1
 - **DevDependencies**: typescript@5.3.3, ts-node@10.9.2, @types/node, @types/pg
 - **tsconfig.json**: CommonJS, ES2022 타겟
 - **Scripts**: build, start, dev, generate, watch
 
 ### ✅ 4. NotificationService 구현
+
 - DATABASE_URL 환경변수 지원
 - LogicalReplicationService 설정
 - 이벤트 핸들러 (insert/update/delete/truncate)
@@ -121,6 +132,7 @@ DataGenerator → PostgreSQL demo table
 - 포맷팅된 콘솔 출력 (타임스탬프, 작업, 데이터)
 
 ### ✅ 5. DataGenerator 구현
+
 - DATABASE_URL 환경변수 지원
 - 랜덤 데이터 생성 (17개 타입)
 - 가중치 기반 작업 선택
@@ -128,12 +140,14 @@ DataGenerator → PostgreSQL demo table
 - 2초 간격 자동 실행
 
 ### ✅ 6. 환경 설정
+
 - DATABASE_URL 환경변수 지원
 - `.env.example` 제공
 - Node.js `--env-file` 옵션 사용 (dotenv 불필요)
 - `.gitignore`에 .env 파일 추가
 
 ### ✅ 7. 문서화
+
 - README.md 전체 업데이트
 - Quick Start 가이드 (8단계)
 - 프로젝트 구조 설명
@@ -153,21 +167,25 @@ DataGenerator → PostgreSQL demo table
 ## 주요 결정 사항
 
 ### 1. 단일 PostgreSQL 인스턴스
+
 - PoC 간소화를 위해 단일 인스턴스 사용
 - pg-logical-replication이 외부 Node.js 프로세스로 연결
 - 같은 cluster 내 subscription hang 이슈 회피
 
 ### 2. CommonJS 모듈 시스템
+
 - `module: "commonjs"` (tsconfig.json)
 - `-r ts-node/register` 사용 (ESM 로더 에러 회피)
 - 안정성 우선, 대부분의 라이브러리와 호환
 
 ### 3. 환경변수 관리
+
 - DATABASE_URL 환경변수 지원
 - Node.js 20.6+ `--env-file` 옵션 활용
 - dotenv 의존성 제거 (간소화)
 
 ### 4. Replication Slot 관리
+
 - 초기화 시 수동 생성 (`pg_create_logical_replication_slot`)
 - Slot name: demo_slot
 - Auto acknowledge 활성화 (10초 타임아웃)
