@@ -9,10 +9,14 @@
   - **PostgreSQL pgoutput → pg-logical-replication → NotificationService**
 - [pg-logical-replication](https://github.com/kibae/pg-logical-replication) 라이브러리 사용
   - Node.js 환경에서 PostgreSQL 논리 복제 스트림 처리
+  - **Manual acknowledge 전략**: 이벤트 처리 성공 시에만 LSN 확인 (At-Least-Once 보장)
+  - **자동 재연결**: 연결 끊김 시 5초 간격으로 무한 재시도
+  - **Blue-Green 배포 지원**: Replication slot 경합 감지 및 대기
 - PoC 목표
   - PostgreSQL 데이터 변경 이벤트를 실시간으로 감지
   - 감지된 이벤트를 NotificationService로 전송하여 알림 처리
   - PoC의 NotificationService는 message를 출력하고, 지정된 log table에 기록
+  - 프로덕션 환경 안정성: 다중 인스턴스 배포, 장애 복구, 이벤트 누락 방지
 
 ## Quick Start
 
@@ -23,6 +27,7 @@ docker-compose up -d
 ```
 
 Wait for initialization:
+
 ```bash
 docker-compose logs -f postgres
 # Wait until you see "database system is ready to accept connections"
@@ -36,6 +41,7 @@ cp .env.example .env
 ```
 
 You can customize the `DATABASE_URL` in `.env` if needed:
+
 ```bash
 DATABASE_URL=postgresql://test:testpw@localhost:5432/pubdb
 ```
@@ -60,6 +66,7 @@ npm run dev
 ```
 
 Expected output:
+
 ```
 🚀 Starting Notification Service...
 ✅ Connected to PostgreSQL for logging
@@ -74,6 +81,7 @@ npm run generate
 ```
 
 Expected output:
+
 ```
 ✅ Connected to PostgreSQL
 🔄 Generating random data every 2000ms...
@@ -88,6 +96,7 @@ Expected output:
 ### 7. Watch Notifications
 
 In the Notification Service terminal, you should see:
+
 ```
 [2025-11-02T10:30:00.123Z] [INSERT] demo id=1
   New data: {
@@ -165,6 +174,112 @@ Data Generator → PostgreSQL demo table
 5. **NotificationService** processes events and:
    - Prints to console
    - Logs to `notification_log` table
+
+## Manual Acknowledge Strategy
+
+### What is Manual Acknowledge?
+
+PostgreSQL logical replication tracks progress using **LSN (Log Sequence Number)**. The `confirmed_flush_lsn` in `pg_replication_slots` indicates the last acknowledged position.
+
+**Auto Acknowledge (기존 방식)**:
+
+```typescript
+acknowledge: {
+  auto: true,
+  timeoutSeconds: 10  // LSN을 10초마다 자동 업데이트
+}
+```
+
+- ❌ 처리 성공/실패와 관계없이 주기적으로 LSN 업데이트
+- ❌ 이벤트 처리 실패 시에도 LSN이 진행되어 **이벤트 유실 가능**
+- ❌ 재시작 시 실패한 이벤트를 재처리할 수 없음
+
+**Manual Acknowledge (현재 방식)**:
+
+```typescript
+acknowledge: {
+  auto: false,
+  timeoutSeconds: 0  // Manual mode에서는 사용 안 됨
+}
+
+// Data handler
+this.replicationService.on('data', async (lsn: string, log: any) => {
+  try {
+    await this.handleReplicationEvent(log);
+    // ✅ 처리 성공 시에만 acknowledge
+    await this.replicationService.acknowledge(lsn);
+  } catch (error) {
+    // ❌ 실패 시 acknowledge 안 함 -> 재시작 시 재처리
+    console.error(`Failed to process event at LSN ${lsn}:`, error);
+  }
+});
+```
+
+- ✅ 처리 성공 시에만 명시적으로 LSN 업데이트
+- ✅ 실패 시 acknowledge 안 함 → `confirmed_flush_lsn`이 진행되지 않음
+- ✅ 재시작 시 마지막 성공한 LSN부터 재처리 (**At-Least-Once 보장**)
+
+### Event Processing Flow
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 1. Event 수신 (LSN: 0/1A2B3C4)                               │
+│    ↓                                                         │
+│ 2. handleReplicationEvent() 호출                             │
+│    ├─ 성공: notification_log INSERT 완료                     │
+│    │   ↓                                                     │
+│    │   3. acknowledge(0/1A2B3C4) 호출                        │
+│    │      ↓                                                  │
+│    │      confirmed_flush_lsn = 0/1A2B3C4 업데이트           │
+│    │                                                         │
+│    └─ 실패: Exception throw                                  │
+│        ↓                                                     │
+│        acknowledge 안 함 (LSN 업데이트 안 됨)                │
+│        ↓                                                     │
+│        재시작 시 동일한 LSN부터 재처리                       │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Blue-Green Deployment Support
+
+다중 인스턴스 배포 시 replication slot은 **단일 연결만 허용**합니다.
+
+**시나리오**: Blue (기존) + Green (신규) 동시 실행
+
+```text
+┌──────────────┐           ┌───────────────────────────┐
+│ Blue (기존)  │ ────────▶ │ Replication Slot (active) │
+└──────────────┘           └───────────────────────────┘
+                                          ▲
+                                          │ 연결 시도 실패
+                              ┌───────────┴──────────┐
+                              │ Green (신규)         │
+                              │ → Retry every 5s     │
+                              └──────────────────────┘
+```
+
+**구현**:
+
+```typescript
+// Slot 사용 가능 여부 확인
+const result = await client.query(
+  `SELECT slot_name, active FROM pg_replication_slots WHERE slot_name = $1`,
+  ['demo_slot']
+);
+
+if (result.rows.length > 0 && result.rows[0].active === true) {
+  // Slot이 active (다른 인스턴스가 사용 중)
+  throw new Error(`Replication slot is active for another instance`);
+}
+```
+
+**동작**:
+
+1. **Green 시작**: Slot이 active → 에러 throw → 5초 후 재시도
+2. **Blue 종료**: Slot이 inactive로 변경
+3. **Green 성공**: Slot 연결 성공 → 마지막 LSN부터 이어받아 처리
+
+이렇게 하면 **무중단 배포**와 **이벤트 누락 없음**을 동시에 보장합니다.
 
 ## Cleanup
 
